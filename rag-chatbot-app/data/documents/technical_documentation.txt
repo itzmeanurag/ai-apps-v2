@@ -1,0 +1,204 @@
+RAG CHATBOT SYSTEM – TECHNICAL DOCUMENTATION
+Version 1.0 | Architecture & Operations Guide
+============================================================
+
+1. SYSTEM OVERVIEW
+------------------
+The RAG (Retrieval-Augmented Generation) Chatbot is an enterprise AI assistant
+that answers questions by retrieving relevant documents and generating grounded
+responses using a local LLM.
+
+Architecture components:
+  - LLM:          Mistral 7B via Ollama (local inference)
+  - Embeddings:   nomic-embed-text via Ollama
+  - Vector Store: ChromaDB (persistent, local)
+  - API:          FastAPI with JWT authentication
+  - UI:           Gradio web interface
+  - Retrieval:    Hybrid BM25 + vector search with RRF fusion
+
+2. INSTALLATION
+---------------
+Prerequisites:
+  - Python 3.10 or higher
+  - Ollama installed and running (https://ollama.ai)
+  - 8 GB RAM minimum; 16 GB recommended for Mistral 7B
+
+Step 1: Install Ollama models
+  $ ollama pull mistral
+  $ ollama pull nomic-embed-text
+
+Step 2: Create virtual environment
+  $ python -m venv .venv
+  $ source .venv/bin/activate   # Linux/Mac
+  $ .venv\Scripts\activate      # Windows
+
+Step 3: Install dependencies
+  $ pip install -r requirements.txt
+
+Step 4: Configure environment
+  $ cp .env.example .env
+  # Edit .env with your SECRET_KEY and other settings
+
+Step 5: Ingest documents
+  $ python -c "from src.chatbot import RAGChatbot; RAGChatbot().ingest('./data/documents')"
+
+Step 6: Start the API server
+  $ uvicorn api.server:app --host 0.0.0.0 --port 8000
+
+Step 7: Start the Gradio UI
+  $ python app.py
+
+3. API REFERENCE
+----------------
+Authentication:
+  POST /auth/token
+  Body: username=<user>&password=<pass> (form data)
+  Returns: { "access_token": "...", "token_type": "bearer", "role": "..." }
+
+Ask a question:
+  POST /ask
+  Headers: Authorization: Bearer <token>
+  Body: { "question": "...", "session_id": "...", "persona": "default" }
+  Returns: { "answer": "...", "sources": [...], "quality": {...}, "cached": false }
+
+Health check:
+  GET /health
+  Returns: { "status": "ok", "version": "1.0.0", "chatbot_ready": true }
+
+Metrics (hr_admin+):
+  GET /metrics
+  Returns: request counts, latency stats, cache hit rate, quality scores
+
+Audit log (admin only):
+  GET /audit?n=100
+  Returns: last N audit log entries
+
+Ingest documents (admin only):
+  POST /ingest?directory=./data/documents
+  Returns: { "status": "ok", "documents_ingested": 42 }
+
+4. RETRIEVAL PIPELINE
+---------------------
+The hybrid retrieval pipeline works as follows:
+
+4.1 BM25 (Lexical Search)
+  - Pure Python implementation of Okapi BM25
+  - k1=1.5, b=0.75 (standard parameters)
+  - Tokenizes on whitespace; case-insensitive
+  - Returns top-K documents by BM25 score
+
+4.2 Vector Search (Semantic Search)
+  - Documents embedded with nomic-embed-text (768 dimensions)
+  - Stored in ChromaDB with cosine similarity
+  - Returns top-K documents by embedding similarity
+
+4.3 Reciprocal Rank Fusion (RRF)
+  - Merges BM25 and vector results
+  - Score = Σ 1/(k + rank_i) where k=60
+  - Produces a unified ranked list
+
+4.4 CrossEncoder Re-ranking
+  - Uses cross-encoder/ms-marco-MiniLM-L-6-v2
+  - Re-scores top-N fused results with query-document pairs
+  - Returns final top-K documents
+
+5. MEMORY SYSTEM
+----------------
+The 3-layer memory system persists conversation context:
+
+Layer 1 – Buffer (fast, in-memory):
+  - Stores last N messages (default: 10)
+  - Used directly in prompts for recent context
+
+Layer 2 – Summary (compressed):
+  - When buffer exceeds threshold, oldest messages are summarized by LLM
+  - Rolling summary is maintained and merged with new summaries
+  - Injected into prompts as conversation background
+
+Layer 3 – Facts (structured):
+  - Key facts extracted from conversations (names, decisions, preferences)
+  - Stored as a list of strings
+  - Injected into prompts for personalization
+
+Sessions are persisted as JSON files in ./data/sessions/.
+
+6. GUARDRAILS
+-------------
+6.1 Content Safety Filter
+  Categories checked: sexual, violence, hate, insults, misconduct, prompt_attack
+  PII detection: email, phone, SSN, credit card
+  PII anonymization: detected PII replaced with [TYPE] placeholders
+  Output scanning: model outputs are also checked for safety violations
+
+6.2 Model Governance
+  Input sanitization: null bytes removed, NFKC normalization, control chars stripped
+  Checksum verification: SHA-256 checksums stored for model files
+  Pickle detection: refuses to load pickle files (arbitrary code execution risk)
+
+7. CONFIGURATION
+----------------
+All settings are in config.yaml. Key sections:
+
+models:
+  generator: "mistral"          # Ollama model for generation
+  embedder: "nomic-embed-text"  # Ollama model for embeddings
+  temperature: 0.7              # Generation temperature (0=deterministic)
+  max_tokens: 1024              # Maximum tokens to generate
+
+retrieval:
+  top_k: 5                      # Documents to retrieve
+  rerank_top_k: 3               # Documents after re-ranking
+  bm25_weight: 0.4              # BM25 weight in fusion
+  vector_weight: 0.6            # Vector weight in fusion
+
+api:
+  rate_limit_per_minute: 60     # Requests per user per minute
+  cache_ttl_seconds: 300        # Semantic cache TTL
+
+8. ROLES AND PERMISSIONS
+------------------------
+Role hierarchy (lowest to highest): employee < hr_admin < admin
+
+employee:
+  - POST /ask (ask questions)
+  - POST /feedback (submit feedback)
+
+hr_admin (includes employee permissions):
+  - GET /metrics (view API metrics)
+
+admin (includes all permissions):
+  - GET /audit (view audit logs)
+  - POST /ingest (ingest documents)
+  - User management
+
+9. TROUBLESHOOTING
+------------------
+Problem: "Connection refused" when starting
+  Solution: Ensure Ollama is running: `ollama serve`
+
+Problem: Slow responses
+  Solution: Reduce max_tokens in config.yaml; use a smaller model
+
+Problem: Poor answer quality
+  Solution: Ingest more relevant documents; adjust chunk_size and chunk_overlap
+
+Problem: "ChromaDB collection not found"
+  Solution: Run ingestion first: POST /ingest or use the Gradio UI
+
+Problem: JWT token expired
+  Solution: Re-authenticate via POST /auth/token
+
+10. MONITORING
+--------------
+The /metrics endpoint returns:
+  - total_requests: cumulative request count
+  - error_rate: fraction of requests that returned 4xx/5xx
+  - cache_hit_rate: fraction served from semantic cache
+  - latency.avg/p95/p99: response time percentiles (ms)
+  - avg_quality_score: average RAG evaluation score (0-1)
+
+Audit logs are written to ./data/audit.jsonl in JSONL format.
+Each line contains: timestamp, event, user_id, role, ip, status, and extras.
+
+============================================================
+For support, open an issue at https://github.com/example/rag-chatbot-app

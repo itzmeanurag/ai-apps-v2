@@ -1,0 +1,73 @@
+models:
+  generator: "mistral"
+  embedder: "nomic-embed-text"
+  reranker: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  ollama_base_url: "http://localhost:11434"
+  temperature: 0.7
+  max_tokens: 1024
+  top_p: 0.9
+
+retrieval:
+  top_k: 5
+  rerank_top_k: 3
+  bm25_weight: 0.4
+  vector_weight: 0.6
+  rrf_k: 60
+  similarity_threshold: 0.3
+
+ingestion:
+  chunk_size: 512
+  chunk_overlap: 64
+  persist_directory: "./data/chroma_db"
+  collection_name: "rag_documents"
+  supported_extensions: [".txt", ".pdf", ".md", ".docx"]
+
+evaluation:
+  enable_auto_eval: true
+  truthfulness_threshold: 0.6
+  quality_threshold: 0.5
+  semantic_cache_threshold: 0.92
+  max_retries: 2
+
+memory:
+  buffer_size: 10
+  summary_threshold: 8
+  facts_max: 50
+  session_dir: "./data/sessions"
+  enable_summarization: true
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  rate_limit_per_minute: 60
+  cache_ttl_seconds: 300
+  max_request_size_kb: 64
+  cors_origins: ["http://localhost:7860", "http://localhost:3000"]
+
+auth:
+  token_expire_minutes: 60
+  algorithm: "HS256"
+  users_file: "./data/users.json"
+  roles: ["employee", "hr_admin", "admin"]
+
+guardrails:
+  enable_content_safety: true
+  enable_pii_detection: true
+  enable_pii_anonymization: true
+  enable_llm_classification: false
+  enable_output_scanning: true
+  enable_model_governance: true
+  checksum_file: "./data/model_checksums.json"
+
+logging:
+  level: "INFO"
+  audit_log_file: "./data/audit.jsonl"
+  metrics_file: "./data/metrics.json"
+  format: "json"
+
+mcp:
+  enabled: false
+  server_url: "http://localhost:8080"
+  timeout_seconds: 10
+  retry_attempts: 3

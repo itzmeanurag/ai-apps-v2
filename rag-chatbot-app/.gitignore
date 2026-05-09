@@ -1,0 +1,104 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.so
+
+# ── Virtual environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+.env.local
+
+# ── Secrets (NEVER commit these) ─────────────────────────────────────────────
+.env
+*.key
+*.pem
+*.p12
+secrets.yaml
+secrets.json
+
+# ── Build / packaging ─────────────────────────────────────────────────────────
+*.egg-info/
+dist/
+build/
+*.egg
+MANIFEST
+.eggs/
+wheels/
+
+# ── Runtime-generated data ────────────────────────────────────────────────────
+data/chroma_db/
+data/sessions/
+data/audit.jsonl
+data/metrics.json
+data/feedback.jsonl
+data/users.json
+data/model_checksums.json
+data/training.jsonl
+data/training_*.jsonl
+data/feedback_*.jsonl
+
+# ── Model files (large binaries) ──────────────────────────────────────────────
+models/
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+
+# ── Jupyter / Colab ───────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+
+# ── Type checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
+.dmypy.json
+.pytype/
+
+# ── Ruff / linting ────────────────────────────────────────────────────────────
+.ruff_cache/
+
+# ── HuggingFace cache (large, re-downloadable) ────────────────────────────────
+# Uncomment if you want to exclude the HF cache from the repo
+# ~/.cache/huggingface/
+
+# ── ChromaDB telemetry ────────────────────────────────────────────────────────
+.chroma/

@@ -1,0 +1,15 @@
+# ── Includes base requirements ────────────────────────────────────────────────
+-r requirements.txt
+
+# ── FastAPI production stack ──────────────────────────────────────────────────
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# ── Production utilities ──────────────────────────────────────────────────────
+gunicorn==23.0.0
+httpx==0.28.1
