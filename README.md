@@ -273,13 +273,13 @@ This repository is grounded in current AI research. Here's what each application
 
 | Quarter | Application | Description |
 |---|---|---|
-| ✅ Q1 2025 | `rag-chatbot-app` | Production RAG chatbot — complete |
-| 🔜 Q2 2025 | `multimodal-app` | Vision + language: image Q&A, PDF intelligence |
-| 🔜 Q2 2025 | `research-agent` | Autonomous web research agent with tool use |
-| 🔜 Q3 2025 | `llm-gateway` | Multi-model routing, semantic caching, cost tracking |
-| 🔜 Q3 2025 | `code-review-agent` | Automated PR review with security scanning |
-| 🔜 Q4 2025 | `data-analyst-agent` | Natural language → SQL → charts pipeline |
-| 🔜 Q4 2025 | `ai-observability` | LLM tracing, evaluation drift, production monitoring |
+| ✅ Q1 2026 | `rag-chatbot-app` | Production RAG chatbot — complete |
+| 🔨 Q2 2026 | `multimodal-app` | Vision + language: image Q&A, PDF intelligence |
+| 🔨 Q2 2026 | `research-agent` | Autonomous web research agent with tool use |
+| 🔜 Q3 2026 | `llm-gateway` | Multi-model routing, semantic caching, cost tracking |
+| 🔜 Q3 2026 | `code-review-agent` | Automated PR review with security scanning |
+| 🔜 Q4 2026 | `data-analyst-agent` | Natural language → SQL → charts pipeline |
+| 🔜 Q4 2026 | `ai-observability` | LLM tracing, evaluation drift, production monitoring |
 
 ---
 
