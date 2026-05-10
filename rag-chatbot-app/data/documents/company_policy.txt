@@ -1,0 +1,113 @@
+ACME CORPORATION – EMPLOYEE POLICY HANDBOOK
+Version 3.2 | Effective Date: January 1, 2025
+============================================================
+
+1. PAID TIME OFF (PTO)
+----------------------
+Full-time employees accrue PTO at the following rates:
+  - Years 0–2:   15 days per year (1.25 days/month)
+  - Years 3–5:   20 days per year (1.67 days/month)
+  - Years 6+:    25 days per year (2.08 days/month)
+
+Part-time employees (20–39 hrs/week) accrue PTO at 50% of the full-time rate.
+PTO must be approved by your direct manager at least 5 business days in advance
+for absences of 3 or more consecutive days.
+
+Maximum PTO carryover: 10 days into the next calendar year. Unused PTO above
+this limit is forfeited on December 31.
+
+2. SICK LEAVE
+-------------
+All employees receive 10 sick days per calendar year. Sick days do not carry
+over and are not paid out upon termination. A doctor's note is required for
+absences exceeding 3 consecutive sick days.
+
+3. REMOTE WORK POLICY
+---------------------
+Employees may work remotely up to 3 days per week with manager approval.
+Remote work arrangements must be documented in the HR system. Employees are
+expected to be available during core hours: 10:00 AM – 3:00 PM local time.
+A reliable internet connection (minimum 25 Mbps) is required for remote work.
+
+4. CODE OF CONDUCT
+------------------
+All employees must:
+  a) Treat colleagues, clients, and partners with respect and professionalism.
+  b) Maintain confidentiality of proprietary information.
+  c) Report conflicts of interest to HR within 30 days of discovery.
+  d) Complete annual compliance training by March 31 each year.
+  e) Not engage in harassment, discrimination, or retaliation of any kind.
+
+Violations of the Code of Conduct may result in disciplinary action up to and
+including termination.
+
+5. BENEFITS
+-----------
+Health Insurance:
+  - Medical: Company covers 80% of premium for employee; 60% for dependents.
+  - Dental: Company covers 70% of premium.
+  - Vision: Company covers 60% of premium.
+  Enrollment window: 30 days from hire date or during annual open enrollment
+  (November 1–30).
+
+Retirement:
+  - 401(k) plan with company match of 4% of salary (100% match on first 4%).
+  - Vesting schedule: 25% per year, fully vested after 4 years.
+
+Professional Development:
+  - Annual learning budget: $2,000 per employee.
+  - Eligible expenses: courses, certifications, conferences, books.
+  - Reimbursement requires manager approval and receipt submission within 60 days.
+
+6. PERFORMANCE REVIEWS
+----------------------
+Performance reviews are conducted twice per year:
+  - Mid-year review: July (feedback only, no rating)
+  - Annual review: December (rating + compensation adjustment)
+
+Ratings scale: 1 (Needs Improvement) – 5 (Exceptional)
+Employees rated 4 or 5 are eligible for merit increases of 3–8%.
+
+7. DISCIPLINARY PROCESS
+-----------------------
+Step 1: Verbal warning (documented in HR system)
+Step 2: Written warning
+Step 3: Performance Improvement Plan (PIP) – 30 to 90 days
+Step 4: Termination
+
+Serious violations (theft, harassment, safety violations) may result in
+immediate termination without prior steps.
+
+8. GRIEVANCE PROCEDURE
+----------------------
+Employees with workplace concerns should:
+  1. Discuss with direct manager (if appropriate).
+  2. Contact HR at hr@acmecorp.example.com.
+  3. Submit a formal grievance via the HR portal.
+  4. Request escalation to the Employee Relations team if unresolved within 10 days.
+
+All grievances are treated confidentially to the extent possible.
+
+9. EQUIPMENT AND TECHNOLOGY
+---------------------------
+Company-issued equipment must be used primarily for business purposes.
+Personal use is permitted within reasonable limits. Employees are responsible
+for the security of company devices. Lost or stolen devices must be reported
+to IT Security within 4 hours of discovery.
+
+Software installation on company devices requires IT approval.
+
+10. TRAVEL POLICY
+-----------------
+Business travel must be pre-approved by the department head.
+Reimbursable expenses:
+  - Flights: Economy class for trips under 6 hours; business class permitted
+    for longer flights with VP approval.
+  - Hotels: Up to $250/night in major cities; $175/night elsewhere.
+  - Meals: Up to $75/day (receipts required for amounts over $25).
+  - Ground transportation: Actual cost (Uber/Lyft preferred over taxis).
+
+Expense reports must be submitted within 30 days of travel completion.
+
+============================================================
+Questions? Contact HR at hr@acmecorp.example.com or ext. 4400.

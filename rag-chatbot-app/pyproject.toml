@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "rag-chatbot-app"
+version = "1.0.0"
+description = "Production RAG chatbot with LangChain, Ollama, ChromaDB, FastAPI, and Gradio"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+keywords = ["rag", "chatbot", "llm", "langchain", "ollama", "chromadb", "fastapi"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "langchain>=0.3.25",
+    "langchain-community>=0.3.23",
+    "langchain-chroma>=0.2.4",
+    "langchain-ollama>=0.3.3",
+    "chromadb>=0.6.3",
+    "gradio>=5.29.0",
+    "pyyaml>=6.0.2",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.3",
+    "numpy>=1.26.4",
+]
+
+[project.optional-dependencies]
+prod = [
+    "fastapi>=0.115.12",
+    "uvicorn[standard]>=0.34.2",
+    "python-multipart>=0.0.20",
+    "python-jose[cryptography]>=3.3.0",
+    "passlib[bcrypt]>=1.7.4",
+    "gunicorn>=23.0.0",
+    "httpx>=0.28.1",
+]
+finetune = [
+    "transformers>=4.51.3",
+    "peft>=0.15.2",
+    "bitsandbytes>=0.45.5",
+    "accelerate>=1.6.0",
+    "datasets>=3.5.1",
+    "trl>=0.16.1",
+    "evaluate>=0.4.3",
+    "rouge-score>=0.1.2",
+]
+rerank = [
+    "sentence-transformers>=3.4.1",
+]
+dev = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.25.3",
+    "httpx>=0.28.1",
+    "black>=25.1.0",
+    "ruff>=0.11.8",
+    "mypy>=1.15.0",
+]
+
+[project.scripts]
+rag-api = "api.server:app"
+rag-ui = "app:demo"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "api*", "guardrails*", "retrieval*", "generation*", "memory*", "evaluation*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "W", "I", "N", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_return_any = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
