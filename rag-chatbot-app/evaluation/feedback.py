@@ -1,6 +1,15 @@
 """
 evaluation/feedback.py
-Human feedback collection (thumbs up/down) and export as training data.
+
+FeedbackCollector – collect human feedback and export as training data.
+
+Spec-required methods:
+  record(question, answer, rating, comment, relevance_score)
+  get_analytics() -> dict
+  export_training_data(output_path, min_rating) -> int
+  save_training_data(output_path, min_rating) -> int  (alias)
+
+Also keeps FeedbackStore as a backward-compat alias.
 """
 from __future__ import annotations
 
@@ -15,17 +24,19 @@ from typing import Literal, Optional
 FeedbackType = Literal["positive", "negative", "neutral"]
 
 
+# ── Data model ────────────────────────────────────────────────────────────────
+
 @dataclass
-class FeedbackEntry:
+class FeedbackRecord:
     feedback_id: str
-    session_id: str
     question: str
     answer: str
-    context: str
-    feedback: FeedbackType
-    rating: Optional[int] = None          # 1-5 stars (optional)
-    comment: Optional[str] = None
-    user_id: Optional[str] = None
+    rating: int                    # 1–5
+    comment: str = ""
+    relevance_score: float = 0.0   # LLM-judged relevance (0–1)
+    session_id: str = ""
+    user_id: str = ""
+    feedback: FeedbackType = "neutral"
     timestamp: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -34,27 +45,30 @@ class FeedbackEntry:
         return asdict(self)
 
     def to_training_example(self) -> dict:
-        """Convert to a fine-tuning training example (instruction-response format)."""
         return {
             "instruction": self.question,
-            "context": self.context,
             "response": self.answer,
-            "quality": "good" if self.feedback == "positive" else "bad",
             "rating": self.rating,
+            "quality": "good" if self.rating >= 4 else "bad",
         }
 
 
-class FeedbackStore:
+# ── FeedbackCollector ─────────────────────────────────────────────────────────
+
+class FeedbackCollector:
     """
-    Thread-safe feedback store backed by a JSONL file.
+    Thread-safe feedback collector backed by a JSONL file.
 
     Usage:
-        store = FeedbackStore("./data/feedback.jsonl")
-        store.record("sess-1", "What is PTO?", "You get 15 days.", "...", "positive")
-        store.export_training_data("./data/training.jsonl", only_positive=True)
+        collector = FeedbackCollector()
+        collector.record("How many leave days?", "20 days.", rating=5)
+        collector.save_training_data("./data/training.jsonl", min_rating=4)
     """
 
-    def __init__(self, feedback_file: str = "./data/feedback.jsonl") -> None:
+    def __init__(
+        self,
+        feedback_file: str = "./data/feedback.jsonl",
+    ) -> None:
         self._path = Path(feedback_file)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
@@ -66,37 +80,139 @@ class FeedbackStore:
         with open(self._path, "r", encoding="utf-8") as fh:
             return sum(1 for _ in fh)
 
-    def _generate_id(self) -> str:
+    def _next_id(self) -> str:
         self._counter += 1
         return f"fb-{self._counter:06d}"
 
+    # ── Spec-required methods ─────────────────────────────────────────────────
+
     def record(
         self,
-        session_id: str,
         question: str,
         answer: str,
-        context: str,
-        feedback: FeedbackType,
-        rating: Optional[int] = None,
-        comment: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> FeedbackEntry:
+        rating: int,
+        comment: str = "",
+        relevance_score: float = 0.0,
+        session_id: str = "",
+        user_id: str = "",
+        context: str = "",          # accepted but not stored separately
+        feedback: FeedbackType = "neutral",
+    ) -> FeedbackRecord:
         """Record a feedback entry and persist it."""
+        if rating >= 4:
+            feedback = "positive"
+        elif rating <= 2:
+            feedback = "negative"
+        else:
+            feedback = "neutral"
+
         with self._lock:
-            entry = FeedbackEntry(
-                feedback_id=self._generate_id(),
-                session_id=session_id,
+            entry = FeedbackRecord(
+                feedback_id=self._next_id(),
                 question=question,
                 answer=answer,
-                context=context,
-                feedback=feedback,
                 rating=rating,
                 comment=comment,
+                relevance_score=relevance_score,
+                session_id=session_id,
                 user_id=user_id,
+                feedback=feedback,
             )
             with open(self._path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(entry.to_dict(), ensure_ascii=False) + "\n")
         return entry
+
+    def get_analytics(self) -> dict:
+        """
+        Return aggregate analytics.
+
+        Keys: total_feedback, satisfaction_rate, average_rating,
+              feedback_with_comments, llm_vs_human_false_positives,
+              rating_distribution
+        """
+        entries = self._load_all()
+        total = len(entries)
+        if total == 0:
+            return {
+                "total_feedback": 0,
+                "satisfaction_rate": 0.0,
+                "average_rating": 0.0,
+                "feedback_with_comments": 0,
+                "llm_vs_human_false_positives": 0,
+                "rating_distribution": {},
+            }
+
+        positive = sum(1 for e in entries if e.feedback == "positive")
+        with_comments = sum(1 for e in entries if e.comment)
+        avg_rating = sum(e.rating for e in entries) / total
+
+        # LLM false positives: LLM said good (relevance >= 0.7) but human said bad (rating <= 2)
+        false_positives = sum(
+            1 for e in entries
+            if e.relevance_score >= 0.7 and e.rating <= 2
+        )
+
+        dist: dict[int, int] = {}
+        for e in entries:
+            dist[e.rating] = dist.get(e.rating, 0) + 1
+
+        return {
+            "total_feedback": total,
+            "satisfaction_rate": round(positive / total, 3),
+            "average_rating": round(avg_rating, 2),
+            "feedback_with_comments": with_comments,
+            "llm_vs_human_false_positives": false_positives,
+            "rating_distribution": dist,
+        }
+
+    def export_training_data(
+        self,
+        output_path: str,
+        min_rating: int = 4,
+    ) -> int:
+        """
+        Export high-quality feedback as JSONL training data.
+        Returns the number of examples exported.
+        """
+        entries = self._load_all()
+        filtered = [e for e in entries if e.rating >= min_rating]
+
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, "w", encoding="utf-8") as fh:
+            for e in filtered:
+                fh.write(json.dumps(e.to_training_example(), ensure_ascii=False) + "\n")
+        return len(filtered)
+
+    def save_training_data(
+        self,
+        output_path: str,
+        min_rating: int = 4,
+    ) -> int:
+        """Alias for export_training_data (spec-required name)."""
+        return self.export_training_data(output_path, min_rating=min_rating)
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _load_all(self) -> list[FeedbackRecord]:
+        if not self._path.exists():
+            return []
+        entries = []
+        with open(self._path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if line:
+                    try:
+                        entries.append(FeedbackRecord(**json.loads(line)))
+                    except (TypeError, KeyError):
+                        pass
+        return entries
+
+    def get_stats(self) -> dict:
+        """Alias for get_analytics (backward compat)."""
+        return self.get_analytics()
+
+    # ── Thumbs up/down helpers ────────────────────────────────────────────────
 
     def thumbs_up(
         self,
@@ -104,9 +220,12 @@ class FeedbackStore:
         question: str,
         answer: str,
         context: str = "",
-        user_id: Optional[str] = None,
-    ) -> FeedbackEntry:
-        return self.record(session_id, question, answer, context, "positive", user_id=user_id)
+        user_id: str = "",
+    ) -> FeedbackRecord:
+        return self.record(
+            question=question, answer=answer, rating=5,
+            session_id=session_id, user_id=user_id, feedback="positive",
+        )
 
     def thumbs_down(
         self,
@@ -114,69 +233,50 @@ class FeedbackStore:
         question: str,
         answer: str,
         context: str = "",
-        comment: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> FeedbackEntry:
+        comment: str = "",
+        user_id: str = "",
+    ) -> FeedbackRecord:
         return self.record(
-            session_id, question, answer, context, "negative",
-            comment=comment, user_id=user_id
+            question=question, answer=answer, rating=1,
+            comment=comment, session_id=session_id, user_id=user_id,
+            feedback="negative",
         )
 
-    def load_all(self) -> list[FeedbackEntry]:
-        """Load all feedback entries from disk."""
-        entries: list[FeedbackEntry] = []
-        if not self._path.exists():
-            return entries
-        with open(self._path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if line:
-                    entries.append(FeedbackEntry(**json.loads(line)))
-        return entries
+    def load_all(self) -> list[FeedbackRecord]:
+        return self._load_all()
 
-    def get_stats(self) -> dict:
-        """Return aggregate feedback statistics."""
-        entries = self.load_all()
-        total = len(entries)
-        positive = sum(1 for e in entries if e.feedback == "positive")
-        negative = sum(1 for e in entries if e.feedback == "negative")
-        return {
-            "total": total,
-            "positive": positive,
-            "negative": negative,
-            "positive_rate": round(positive / total, 3) if total else 0.0,
-        }
 
-    def export_training_data(
+# ── FeedbackStore – backward-compat alias ─────────────────────────────────────
+
+class FeedbackStore(FeedbackCollector):
+    """
+    Backward-compatible alias for FeedbackCollector.
+    Adds the record() signature used by the old API server.
+    """
+
+    def record(  # type: ignore[override]
         self,
-        output_path: str,
-        only_positive: bool = False,
-        min_rating: Optional[int] = None,
-    ) -> int:
-        """
-        Export feedback as training data (JSONL).
+        session_id: str = "",
+        question: str = "",
+        answer: str = "",
+        context: str = "",
+        feedback: FeedbackType = "neutral",
+        rating: Optional[int] = None,
+        comment: Optional[str] = None,
+        user_id: Optional[str] = None,
+        **kwargs,
+    ) -> FeedbackRecord:
+        r = rating if rating is not None else (5 if feedback == "positive" else 1)
+        return super().record(
+            question=question,
+            answer=answer,
+            rating=r,
+            comment=comment or "",
+            session_id=session_id,
+            user_id=user_id or "",
+            feedback=feedback,
+        )
 
-        Args:
-            output_path: Destination file path.
-            only_positive: If True, export only positive feedback.
-            min_rating: If set, only export entries with rating >= min_rating.
-
-        Returns:
-            Number of examples exported.
-        """
-        entries = self.load_all()
-        filtered = []
-        for entry in entries:
-            if only_positive and entry.feedback != "positive":
-                continue
-            if min_rating is not None and (entry.rating is None or entry.rating < min_rating):
-                continue
-            filtered.append(entry)
-
-        out_path = Path(output_path)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(out_path, "w", encoding="utf-8") as fh:
-            for entry in filtered:
-                fh.write(json.dumps(entry.to_training_example(), ensure_ascii=False) + "\n")
-
-        return len(filtered)
+    @property
+    def feedback_id(self) -> str:
+        return f"fb-{self._counter:06d}"

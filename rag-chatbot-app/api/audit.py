@@ -1,11 +1,22 @@
 """
 api/audit.py
-Thread-safe JSONL audit logger.
+
+AuditLogger – thread-safe JSONL audit logger.
+
+Spec-required methods:
+  log_question(user_id, question, answer, session_id, quality, latency_ms, cached, blocked)
+  log_auth_event(event, username, ip, success, role)
+  log_admin_action(user_id, action, details)
+  query_logs(event_type, user_id, limit) -> list[dict]
+  get_stats() -> dict
+
+Also keeps the generic log() method for backward compat.
 """
 from __future__ import annotations
 
 import json
 import threading
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -13,18 +24,142 @@ from typing import Any, Optional
 
 class AuditLogger:
     """
-    Append-only, thread-safe audit logger.
-    Each event is written as a single JSON line to a .jsonl file.
+    Append-only, thread-safe JSONL audit logger.
 
     Usage:
         logger = AuditLogger("./data/audit.jsonl")
-        logger.log("ask", user_id="alice", question="What is PTO?", status="ok")
+        logger.log_question("usr-001", "What is PTO?", "20 days.", "sess-1")
+        logger.log_auth_event("login", "admin", "127.0.0.1", True, "admin")
     """
 
     def __init__(self, log_file: str = "./data/audit.jsonl") -> None:
         self._path = Path(log_file)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+
+    # ── Spec-required methods ─────────────────────────────────────────────────
+
+    def log_question(
+        self,
+        user_id: str,
+        question: str,
+        answer: str,
+        session_id: str = "",
+        quality: Optional[dict] = None,
+        latency_ms: float = 0.0,
+        cached: bool = False,
+        blocked: bool = False,
+    ) -> None:
+        """Log a Q&A interaction."""
+        self._write({
+            "event": "question",
+            "user_id": user_id,
+            "session_id": session_id,
+            "question": question[:200],
+            "answer_preview": answer[:100],
+            "quality_score": quality.get("overall") if quality else None,
+            "latency_ms": round(latency_ms, 1),
+            "cached": cached,
+            "blocked": blocked,
+        })
+
+    def log_auth_event(
+        self,
+        event: str,
+        username: str,
+        ip: str = "",
+        success: bool = True,
+        role: str = "",
+    ) -> None:
+        """Log an authentication event (login, logout, failed attempt)."""
+        self._write({
+            "event": f"auth_{event}",
+            "username": username,
+            "ip": ip,
+            "success": success,
+            "role": role,
+            "status": "ok" if success else "denied",
+        })
+
+    def log_admin_action(
+        self,
+        user_id: str,
+        action: str,
+        details: Optional[dict] = None,
+    ) -> None:
+        """Log an administrative action (ingest, user management, etc.)."""
+        self._write({
+            "event": "admin_action",
+            "user_id": user_id,
+            "action": action,
+            **(details or {}),
+        })
+
+    def query_logs(
+        self,
+        event_type: Optional[str] = None,
+        user_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """
+        Query audit logs with optional filters.
+
+        Args:
+            event_type: Filter by event type (e.g. "question", "auth_login").
+            user_id:    Filter by user ID.
+            limit:      Maximum number of entries to return.
+        """
+        all_entries = self._read_all()
+        filtered = []
+        for entry in reversed(all_entries):
+            if event_type and entry.get("event") != event_type:
+                continue
+            if user_id and entry.get("user_id") != user_id:
+                continue
+            filtered.append(entry)
+            if len(filtered) >= limit:
+                break
+        return filtered
+
+    def get_stats(self) -> dict:
+        """
+        Return aggregate statistics from the audit log.
+
+        Keys: total_events, events_by_type, unique_users,
+              total_questions, blocked_questions, cache_hits,
+              auth_failures
+        """
+        all_entries = self._read_all()
+        by_type: dict[str, int] = defaultdict(int)
+        users: set[str] = set()
+        total_q = blocked_q = cache_hits = auth_failures = 0
+
+        for entry in all_entries:
+            evt = entry.get("event", "unknown")
+            by_type[evt] += 1
+            uid = entry.get("user_id")
+            if uid:
+                users.add(uid)
+            if evt == "question":
+                total_q += 1
+                if entry.get("blocked"):
+                    blocked_q += 1
+                if entry.get("cached"):
+                    cache_hits += 1
+            if evt.startswith("auth_") and not entry.get("success", True):
+                auth_failures += 1
+
+        return {
+            "total_events": len(all_entries),
+            "events_by_type": dict(by_type),
+            "unique_users": len(users),
+            "total_questions": total_q,
+            "blocked_questions": blocked_q,
+            "cache_hits": cache_hits,
+            "auth_failures": auth_failures,
+        }
+
+    # ── Generic log (backward compat) ─────────────────────────────────────────
 
     def log(
         self,
@@ -35,43 +170,48 @@ class AuditLogger:
         status: str = "ok",
         **extra: Any,
     ) -> None:
-        """
-        Write an audit event.
-
-        Args:
-            event_type: e.g. "ask", "login", "logout", "ingest", "error"
-            user_id:    Authenticated user identifier.
-            role:       User role at time of event.
-            ip_address: Client IP (anonymized if needed).
-            status:     "ok" | "denied" | "error"
-            **extra:    Additional key-value pairs to include.
-        """
-        record = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+        """Generic log method kept for backward compatibility."""
+        record: dict = {
             "event": event_type,
-            "user_id": user_id,
-            "role": role,
-            "ip": ip_address,
             "status": status,
-            **extra,
         }
-        # Remove None values to keep logs clean
-        record = {k: v for k, v in record.items() if v is not None}
+        if user_id:
+            record["user_id"] = user_id
+        if role:
+            record["role"] = role
+        if ip_address:
+            record["ip"] = ip_address
+        record.update(extra)
+        self._write(record)
 
+    # ── Backward-compat read methods ──────────────────────────────────────────
+
+    def read_recent(self, n: int = 100) -> list[dict]:
+        return self._read_all()[-n:]
+
+    def read_by_user(self, user_id: str, limit: int = 200) -> list[dict]:
+        return self.query_logs(user_id=user_id, limit=limit)
+
+    def read_by_event(self, event_type: str, limit: int = 200) -> list[dict]:
+        return self.query_logs(event_type=event_type, limit=limit)
+
+    # ── Internal helpers ──────────────────────────────────────────────────────
+
+    def _write(self, record: dict) -> None:
+        record["timestamp"] = datetime.now(timezone.utc).isoformat()
         line = json.dumps(record, ensure_ascii=False, default=str)
         with self._lock:
             with open(self._path, "a", encoding="utf-8") as fh:
                 fh.write(line + "\n")
 
-    def read_recent(self, n: int = 100) -> list[dict]:
-        """Return the last n audit entries."""
+    def _read_all(self) -> list[dict]:
         if not self._path.exists():
             return []
         with self._lock:
             with open(self._path, "r", encoding="utf-8") as fh:
                 lines = fh.readlines()
         entries = []
-        for line in lines[-n:]:
+        for line in lines:
             line = line.strip()
             if line:
                 try:
@@ -79,13 +219,3 @@ class AuditLogger:
                 except json.JSONDecodeError:
                     pass
         return entries
-
-    def read_by_user(self, user_id: str, limit: int = 200) -> list[dict]:
-        """Return audit entries for a specific user."""
-        all_entries = self.read_recent(limit * 5)
-        return [e for e in all_entries if e.get("user_id") == user_id][-limit:]
-
-    def read_by_event(self, event_type: str, limit: int = 200) -> list[dict]:
-        """Return audit entries for a specific event type."""
-        all_entries = self.read_recent(limit * 5)
-        return [e for e in all_entries if e.get("event") == event_type][-limit:]

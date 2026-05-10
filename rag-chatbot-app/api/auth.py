@@ -1,6 +1,15 @@
 """
 api/auth.py
-JWT create/verify, BCrypt passwords, local JSON user store.
+Local JWT auth.
+
+Spec-required functions:
+  create_user(username, password, role) -> User
+  authenticate_user(username, password) -> User | None
+  create_token(user_id, username, role) -> str
+  verify_token(token) -> dict
+  setup_default_users()
+
+Default users: admin/admin123, hr_manager/hr123, employee1/emp123
 """
 from __future__ import annotations
 
@@ -22,13 +31,13 @@ ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("TOKEN_EXPIRE_MINUTES", "60"))
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# ── User model ────────────────────────────────────────────────────────────────
-
 VALID_ROLES = {"employee", "hr_admin", "admin"}
-
-# Role hierarchy: higher index = more permissions
 ROLE_HIERARCHY = ["employee", "hr_admin", "admin"]
 
+_DEFAULT_USERS_FILE = "./data/users.json"
+
+
+# ── User model ────────────────────────────────────────────────────────────────
 
 class User:
     def __init__(
@@ -59,11 +68,8 @@ class User:
         return cls(**data)
 
     def has_role(self, required_role: str) -> bool:
-        """Return True if user's role is >= required_role in hierarchy."""
         try:
-            user_level = ROLE_HIERARCHY.index(self.role)
-            required_level = ROLE_HIERARCHY.index(required_role)
-            return user_level >= required_level
+            return ROLE_HIERARCHY.index(self.role) >= ROLE_HIERARCHY.index(required_role)
         except ValueError:
             return False
 
@@ -71,48 +77,12 @@ class User:
 # ── User store ────────────────────────────────────────────────────────────────
 
 class UserStore:
-    """
-    Local JSON-backed user store.
-    Thread-safe reads and writes.
-    """
+    """Thread-safe local JSON user store."""
 
-    def __init__(self, users_file: str = "./data/users.json") -> None:
+    def __init__(self, users_file: str = _DEFAULT_USERS_FILE) -> None:
         self._path = Path(users_file)
         self._lock = threading.Lock()
-        self._ensure_defaults()
-
-    def _ensure_defaults(self) -> None:
-        """Create the users file with a default admin if it doesn't exist."""
-        if self._path.exists():
-            return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        default_users = [
-            {
-                "user_id": "usr-001",
-                "username": "admin",
-                "hashed_password": _pwd_context.hash(
-                    os.getenv("ADMIN_PASSWORD", "admin123")
-                ),
-                "role": "admin",
-                "disabled": False,
-            },
-            {
-                "user_id": "usr-002",
-                "username": "hr_user",
-                "hashed_password": _pwd_context.hash("hr_password"),
-                "role": "hr_admin",
-                "disabled": False,
-            },
-            {
-                "user_id": "usr-003",
-                "username": "employee1",
-                "hashed_password": _pwd_context.hash("emp_password"),
-                "role": "employee",
-                "disabled": False,
-            },
-        ]
-        with open(self._path, "w", encoding="utf-8") as fh:
-            json.dump(default_users, fh, indent=2)
+        setup_default_users(self._path)
 
     def _load(self) -> list[dict]:
         with open(self._path, "r", encoding="utf-8") as fh:
@@ -136,39 +106,20 @@ class UserStore:
                     return User.from_dict(u)
         return None
 
-    def create_user(
-        self,
-        username: str,
-        password: str,
-        role: str = "employee",
-    ) -> User:
-        if role not in VALID_ROLES:
-            raise ValueError(f"Invalid role '{role}'. Must be one of {VALID_ROLES}")
+    def all_users(self) -> list[User]:
         with self._lock:
-            users = self._load()
-            if any(u["username"] == username for u in users):
-                raise ValueError(f"Username '{username}' already exists.")
-            user_id = f"usr-{len(users) + 1:03d}"
-            new_user = {
-                "user_id": user_id,
-                "username": username,
-                "hashed_password": _pwd_context.hash(password),
-                "role": role,
-                "disabled": False,
-            }
-            users.append(new_user)
-            self._save(users)
-            return User.from_dict(new_user)
+            return [User.from_dict(u) for u in self._load()]
 
-    def update_password(self, username: str, new_password: str) -> bool:
+    def save_user(self, user: User) -> None:
         with self._lock:
             users = self._load()
-            for u in users:
-                if u["username"] == username:
-                    u["hashed_password"] = _pwd_context.hash(new_password)
+            for i, u in enumerate(users):
+                if u["user_id"] == user.user_id:
+                    users[i] = user.to_dict()
                     self._save(users)
-                    return True
-        return False
+                    return
+            users.append(user.to_dict())
+            self._save(users)
 
     def disable_user(self, username: str) -> bool:
         with self._lock:
@@ -181,27 +132,113 @@ class UserStore:
         return False
 
 
-# ── Password helpers ──────────────────────────────────────────────────────────
+# ── Spec-required standalone functions ───────────────────────────────────────
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return _pwd_context.verify(plain, hashed)
+def setup_default_users(path: Optional[Path] = None) -> None:
+    """
+    Create the users file with default users if it doesn't exist.
+    Default users: admin/admin123, hr_manager/hr123, employee1/emp123
+    """
+    p = Path(path) if path else Path(_DEFAULT_USERS_FILE)
+    if p.exists():
+        return
+    p.parent.mkdir(parents=True, exist_ok=True)
+    defaults = [
+        {
+            "user_id": "usr-001",
+            "username": "admin",
+            "hashed_password": _pwd_context.hash("admin123"),
+            "role": "admin",
+            "disabled": False,
+        },
+        {
+            "user_id": "usr-002",
+            "username": "hr_manager",
+            "hashed_password": _pwd_context.hash("hr123"),
+            "role": "hr_admin",
+            "disabled": False,
+        },
+        {
+            "user_id": "usr-003",
+            "username": "employee1",
+            "hashed_password": _pwd_context.hash("emp123"),
+            "role": "employee",
+            "disabled": False,
+        },
+    ]
+    with open(p, "w", encoding="utf-8") as fh:
+        json.dump(defaults, fh, indent=2)
 
 
-def hash_password(plain: str) -> str:
-    return _pwd_context.hash(plain)
+def create_user(
+    username: str,
+    password: str,
+    role: str = "employee",
+    users_file: str = _DEFAULT_USERS_FILE,
+) -> User:
+    """Create a new user and persist to the users file."""
+    if role not in VALID_ROLES:
+        raise ValueError(f"Invalid role '{role}'. Must be one of {VALID_ROLES}")
+    path = Path(users_file)
+    setup_default_users(path)
+    with open(path, "r", encoding="utf-8") as fh:
+        users = json.load(fh)
+    if any(u["username"] == username for u in users):
+        raise ValueError(f"Username '{username}' already exists.")
+    user_id = f"usr-{len(users) + 1:03d}"
+    new_user = {
+        "user_id": user_id,
+        "username": username,
+        "hashed_password": _pwd_context.hash(password),
+        "role": role,
+        "disabled": False,
+    }
+    users.append(new_user)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(users, fh, indent=2)
+    return User.from_dict(new_user)
 
 
-# ── JWT helpers ───────────────────────────────────────────────────────────────
+def authenticate_user(
+    username: str,
+    password: str,
+    users_file: str = _DEFAULT_USERS_FILE,
+) -> Optional[User]:
+    """
+    Authenticate a user by username and password.
+    Returns User if valid, None otherwise.
 
-def create_access_token(
+    Also accepts (UserStore, username, password) for backward compat.
+    """
+    # Backward compat: first arg may be a UserStore
+    if isinstance(username, UserStore):
+        store: UserStore = username
+        username = password
+        password = users_file  # type: ignore[assignment]
+        user = store.get_by_username(username)
+        if user is None or user.disabled:
+            return None
+        return user if _pwd_context.verify(password, user.hashed_password) else None
+
+    path = Path(users_file)
+    setup_default_users(path)
+    with open(path, "r", encoding="utf-8") as fh:
+        users = json.load(fh)
+    for u in users:
+        if u["username"] == username and not u.get("disabled", False):
+            if _pwd_context.verify(password, u["hashed_password"]):
+                return User.from_dict(u)
+    return None
+
+
+def create_token(
     user_id: str,
     username: str,
     role: str,
-    expires_delta: Optional[timedelta] = None,
+    expires_minutes: int = ACCESS_TOKEN_EXPIRE_MINUTES,
 ) -> str:
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    """Create a signed JWT access token."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     payload = {
         "sub": user_id,
         "username": username,
@@ -212,19 +249,34 @@ def create_access_token(
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict:
+def verify_token(token: str) -> dict:
     """
-    Decode and validate a JWT token.
+    Decode and verify a JWT token.
+    Returns the payload dict.
     Raises JWTError on invalid/expired tokens.
     """
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
 
 
-def authenticate_user(store: UserStore, username: str, password: str) -> Optional[User]:
-    """Return User if credentials are valid, else None."""
-    user = store.get_by_username(username)
-    if user is None or user.disabled:
-        return None
-    if not verify_password(password, user.hashed_password):
-        return None
-    return user
+# ── Backward-compat aliases ───────────────────────────────────────────────────
+
+def create_access_token(
+    user_id: str,
+    username: str,
+    role: str,
+    expires_delta=None,
+) -> str:
+    minutes = int(expires_delta.total_seconds() / 60) if expires_delta else ACCESS_TOKEN_EXPIRE_MINUTES
+    return create_token(user_id, username, role, expires_minutes=minutes)
+
+
+def decode_access_token(token: str) -> dict:
+    return verify_token(token)
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return _pwd_context.verify(plain, hashed)
+
+
+def hash_password(plain: str) -> str:
+    return _pwd_context.hash(plain)

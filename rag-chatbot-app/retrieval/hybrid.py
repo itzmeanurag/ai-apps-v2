@@ -1,6 +1,9 @@
 """
 retrieval/hybrid.py
-BM25 (pure Python) + vector search + Reciprocal Rank Fusion + CrossEncoder re-ranking.
+
+BM25 (pure Python, k1=1.5, b=0.75)
+CrossEncoderReranker (lazy-loaded ms-marco-MiniLM)
+HybridRetriever.search() using Reciprocal Rank Fusion (RRF, k=60)
 """
 from __future__ import annotations
 
@@ -9,7 +12,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-# ── BM25 implementation (pure Python, no external deps) ──────────────────────
+
+# ── Document dataclass ────────────────────────────────────────────────────────
 
 @dataclass
 class Document:
@@ -19,9 +23,11 @@ class Document:
     score: float = 0.0
 
 
+# ── BM25 ──────────────────────────────────────────────────────────────────────
+
 class BM25:
     """
-    Okapi BM25 retriever.
+    Okapi BM25 retriever (pure Python).
     k1=1.5, b=0.75 (standard defaults).
     """
 
@@ -65,7 +71,7 @@ class BM25:
         query_tokens = self._tokenize(query)
         scores: list[float] = []
 
-        for i, doc in enumerate(self._docs):
+        for i in range(len(self._docs)):
             dl = sum(self._tf[i].values())
             score = 0.0
             for token in query_tokens:
@@ -74,26 +80,21 @@ class BM25:
                 tf = self._tf[i][token]
                 df = self._df.get(token, 0)
                 idf = math.log((self._N - df + 0.5) / (df + 0.5) + 1)
-                numerator = tf * (self.k1 + 1)
-                denominator = tf + self.k1 * (1 - self.b + self.b * dl / self._avg_dl)
-                score += idf * (numerator / denominator)
+                num = tf * (self.k1 + 1)
+                den = tf + self.k1 * (1 - self.b + self.b * dl / self._avg_dl)
+                score += idf * (num / den)
             scores.append(score)
 
-        ranked = sorted(
-            range(len(self._docs)), key=lambda i: scores[i], reverse=True
-        )
-        results = []
-        for idx in ranked[:top_k]:
-            doc = self._docs[idx]
-            results.append(
-                Document(
-                    id=doc.id,
-                    content=doc.content,
-                    metadata=doc.metadata,
-                    score=scores[idx],
-                )
+        ranked = sorted(range(len(self._docs)), key=lambda i: scores[i], reverse=True)
+        return [
+            Document(
+                id=self._docs[idx].id,
+                content=self._docs[idx].content,
+                metadata=self._docs[idx].metadata,
+                score=scores[idx],
             )
-        return results
+            for idx in ranked[:top_k]
+        ]
 
 
 # ── Reciprocal Rank Fusion ────────────────────────────────────────────────────
@@ -120,15 +121,18 @@ def reciprocal_rank_fusion(
     return merged
 
 
-# ── CrossEncoder re-ranker ────────────────────────────────────────────────────
+# ── CrossEncoderReranker ──────────────────────────────────────────────────────
 
 class CrossEncoderReranker:
     """
-    Re-ranks documents using a CrossEncoder model.
+    Re-ranks documents using a CrossEncoder model (lazy-loaded).
     Falls back to original order if sentence-transformers is unavailable.
     """
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2") -> None:
+    def __init__(
+        self,
+        model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    ) -> None:
         self._model_name = model_name
         self._model: Any = None
         self._available = False
@@ -145,7 +149,12 @@ class CrossEncoderReranker:
                 "CrossEncoder re-ranking disabled."
             )
 
-    def rerank(self, query: str, documents: list[Document], top_k: int = 3) -> list[Document]:
+    def rerank(
+        self,
+        query: str,
+        documents: list[Document],
+        top_k: int = 3,
+    ) -> list[Document]:
         """Return top_k documents re-ranked by cross-encoder score."""
         if not self._available or not documents:
             return documents[:top_k]
@@ -156,43 +165,49 @@ class CrossEncoderReranker:
         for doc, score in zip(documents, scores):
             doc.score = score
 
-        reranked = sorted(documents, key=lambda d: d.score, reverse=True)
-        return reranked[:top_k]
+        return sorted(documents, key=lambda d: d.score, reverse=True)[:top_k]
 
 
-# ── Hybrid retriever ──────────────────────────────────────────────────────────
+# ── HybridRetriever ───────────────────────────────────────────────────────────
 
 class HybridRetriever:
     """
-    Combines BM25 + vector search via RRF, then optionally re-ranks with CrossEncoder.
+    Combines BM25 + vector search via RRF, then re-ranks with CrossEncoder.
 
-    Usage:
-        retriever = HybridRetriever(vector_store, cfg)
-        docs = retriever.retrieve("What is the vacation policy?")
+    Spec-required method: search(query, top_k) -> list[Document]
+    Also exposes retrieve() as an alias.
     """
 
     def __init__(
         self,
-        vector_store: Any,  # ChromaDB collection or LangChain vectorstore
+        vector_store: Any,
         cfg: Any,
         reranker: Optional[CrossEncoderReranker] = None,
+        bm25_weight: float = 0.4,
+        vector_weight: float = 0.6,
     ) -> None:
         self._vector_store = vector_store
         self._cfg = cfg
         self._bm25 = BM25()
         self._reranker = reranker or CrossEncoderReranker(cfg.models.reranker)
         self._indexed = False
+        self._bm25_weight = bm25_weight
+        self._vector_weight = vector_weight
 
     def build_bm25_index(self, documents: list[Document]) -> None:
         """Index documents for BM25 search."""
         self._bm25.index(documents)
         self._indexed = True
 
-    def retrieve(self, query: str, top_k: Optional[int] = None) -> list[Document]:
+    def search(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+    ) -> list[Document]:
         """
-        Full hybrid retrieval pipeline:
-        1. BM25 search
-        2. Vector search
+        Full hybrid retrieval pipeline (spec-required method name):
+        1. BM25 keyword search
+        2. Vector semantic search
         3. RRF fusion
         4. CrossEncoder re-ranking
         """
@@ -204,10 +219,10 @@ class HybridRetriever:
         if self._indexed:
             bm25_results = self._bm25.search(query, top_k=top_k)
 
-        # 2. Vector search
+        # 2. Vector
         vector_results = self._vector_search(query, top_k=top_k)
 
-        # 3. RRF fusion
+        # 3. RRF
         if bm25_results and vector_results:
             fused = reciprocal_rank_fusion(
                 [bm25_results, vector_results],
@@ -223,15 +238,25 @@ class HybridRetriever:
             return self._reranker.rerank(query, fused, top_k=rerank_k)
         return []
 
+    def retrieve(
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+    ) -> list[Document]:
+        """Alias for search() — kept for backward compatibility."""
+        return self.search(query, top_k=top_k)
+
     def _vector_search(self, query: str, top_k: int) -> list[Document]:
-        """Perform vector similarity search using the configured vector store."""
         try:
             results = self._vector_store.similarity_search_with_score(query, k=top_k)
             docs = []
             for lc_doc, score in results:
                 docs.append(
                     Document(
-                        id=lc_doc.metadata.get("id", lc_doc.metadata.get("source", str(id(lc_doc)))),
+                        id=lc_doc.metadata.get(
+                            "id",
+                            lc_doc.metadata.get("source", str(id(lc_doc))),
+                        ),
                         content=lc_doc.page_content,
                         metadata=lc_doc.metadata,
                         score=float(score),
