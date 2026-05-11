@@ -21,8 +21,13 @@ RUN (from project root):
 import sys
 from pathlib import Path
 
-# Add project root to path so we can import from src/
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# ── Resolve project root regardless of where the script is run from ───────────
+# __file__ = rag-chatbot-app/notebooks/lessons/03_ingest_documents.py
+# .parent        → rag-chatbot-app/notebooks/lessons/
+# .parent.parent → rag-chatbot-app/notebooks/
+# .parent.parent.parent → rag-chatbot-app/   ← project root
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from langchain_ollama import OllamaEmbeddings
 from langchain_chroma import Chroma
@@ -33,9 +38,11 @@ from src.config import cfg  # dot-access config: cfg.ingestion.chunk_size
 
 
 # ── Configuration (from config.yaml via cfg) ──────────────────────────────────
+# All paths are resolved relative to the project root so the script works
+# whether you run it from the repo root, notebooks/, or notebooks/lessons/.
 
-DOCUMENTS_DIR = "./data/documents"
-CHROMA_DIR    = cfg.ingestion.persist_directory   # "./data/chroma_db"
+DOCUMENTS_DIR = str(PROJECT_ROOT / "data" / "documents")
+CHROMA_DIR    = str(PROJECT_ROOT / cfg.ingestion.persist_directory.lstrip("./"))
 COLLECTION    = cfg.ingestion.collection_name     # "rag_documents"
 CHUNK_SIZE    = cfg.ingestion.chunk_size          # 512
 CHUNK_OVERLAP = cfg.ingestion.chunk_overlap       # 64

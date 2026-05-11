@@ -24,7 +24,8 @@ RUN (from project root):
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_chroma import Chroma
@@ -37,7 +38,7 @@ from src.config import cfg
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-CHROMA_DIR  = cfg.ingestion.persist_directory
+CHROMA_DIR  = str(PROJECT_ROOT / cfg.ingestion.persist_directory.lstrip("./"))
 COLLECTION  = cfg.ingestion.collection_name
 TOP_K       = cfg.retrieval.top_k   # number of chunks to retrieve per question
 

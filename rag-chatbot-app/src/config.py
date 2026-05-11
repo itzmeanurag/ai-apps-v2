@@ -6,14 +6,28 @@ Sections: models, retrieval, ingestion, evaluation, memory, api, auth, guardrail
 """
 from __future__ import annotations
 
+import logging
 import os
+import warnings
 from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
 
-load_dotenv()
+# Suppress dotenv "File not found" warnings — .env is optional
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(override=False, verbose=False)
+    except ImportError:
+        pass  # python-dotenv not installed — env vars still work normally
+
+# Suppress LangChain / pydantic deprecation warnings that fire on import
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", message=".*LangChainDeprecationWarning.*")
+logging.getLogger("langchain").setLevel(logging.ERROR)
+logging.getLogger("chromadb").setLevel(logging.ERROR)
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 

@@ -23,7 +23,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from langchain_ollama import ChatOllama, OllamaEmbeddings
 from langchain_chroma import Chroma
@@ -97,8 +98,9 @@ def demo_rag_streaming() -> None:
         model=cfg.models.embedder,
         base_url=cfg.models.ollama_base_url,
     )
+    chroma_dir = str(PROJECT_ROOT / cfg.ingestion.persist_directory.lstrip("./"))
     vector_store = Chroma(
-        persist_directory=cfg.ingestion.persist_directory,
+        persist_directory=chroma_dir,
         embedding_function=embeddings,
         collection_name=cfg.ingestion.collection_name,
     )
